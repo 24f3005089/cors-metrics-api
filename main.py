@@ -1,12 +1,37 @@
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
 import uuid
 import time
+import jwt
 
-EMAIL = "24f3005089@ds.study.iitm.ac.in"
+# ==========================
+# Configuration
+# ==========================
+
+EMAIL = "YOUR_REGISTERED_EMAIL"   # Replace with your exact logged-in email
 
 ALLOWED_ORIGIN = "https://dash-52xy3r.example.com"
+
+ISSUER = "https://idp.exam.local"
+AUDIENCE = "tds-rbhx22z6.apps.exam.local"
+
+PUBLIC_KEY = """
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2okOHspNjgA+2rTLbeuY
+cxiP/hG8C6Sb9iwg3yiLAA4HCnpITcbWCSelbvbYGuc3EbNy4xFyf5Cbj5DHJMID
+EkryOgyd2giIIIBOUBj8S63uGcnRpOBh9NFatfNwheKuzsPuVNldu6A9cNteNpXc
+WyJjG2axVfmq7i6SuKr1JoWYG7xTTAvKPujSl4OtsQfO3h5NepzdfXpr28oNnzfW
+ed+zclR6BcmNNo/WVfJ4xyCLSf0BCOgdTgW6PdaChd1l9VDetJZVEgC5tkyvXsfI
+SI6iyrYbKR0NEBSqq4XkadEjsCs4LlgniT7GlkL9Mce3b0wGLs9/7ZIXdQIDAQAB
+-----END PUBLIC KEY-----
+"""
+
+# ==========================
+# FastAPI App
+# ==========================
 
 app = FastAPI()
 
@@ -14,10 +39,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[ALLOWED_ORIGIN],
     allow_credentials=False,
-    allow_methods=["GET", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
+
+# ==========================
+# Middleware
+# ==========================
 
 @app.middleware("http")
 async def add_headers(request: Request, call_next):
@@ -33,22 +62,63 @@ async def add_headers(request: Request, call_next):
     return response
 
 
+# ==========================
+# Root
+# ==========================
+
+@app.get("/")
+async def home():
+    return {"status": "running"}
+
+
+# ==========================
+# Question 1 - Metrics API
+# ==========================
+
 @app.get("/stats")
 async def stats(values: str = Query(...)):
-    nums = [int(x) for x in values.split(",") if x.strip()]
+    numbers = [int(x) for x in values.split(",") if x.strip()]
 
-    total = sum(nums)
+    total = sum(numbers)
 
     return {
         "email": EMAIL,
-        "count": len(nums),
+        "count": len(numbers),
         "sum": total,
-        "min": min(nums),
-        "max": max(nums),
-        "mean": total / len(nums),
+        "min": min(numbers),
+        "max": max(numbers),
+        "mean": total / len(numbers),
     }
 
 
-@app.get("/")
-def home():
-    return {"status": "running"}
+# ==========================
+# Question 2 - OAuth Verify
+# ==========================
+
+class TokenRequest(BaseModel):
+    token: str
+
+
+@app.post("/verify")
+async def verify(req: TokenRequest):
+    try:
+        payload = jwt.decode(
+            req.token,
+            PUBLIC_KEY,
+            algorithms=["RS256"],
+            issuer=ISSUER,
+            audience=AUDIENCE,
+        )
+
+        return {
+            "valid": True,
+            "email": payload.get("email"),
+            "sub": payload.get("sub"),
+            "aud": payload.get("aud"),
+        }
+
+    except jwt.PyJWTError:
+        return JSONResponse(
+            status_code=401,
+            content={"valid": False},
+        )
