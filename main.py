@@ -115,3 +115,85 @@ async def verify(req: TokenRequest):
             status_code=401,
             content={"valid": False},
         )
+# ==========================
+# QUESTION 3
+# ==========================
+
+import os
+import yaml
+from dotenv import dotenv_values
+from fastapi import Query
+
+DEFAULTS = {
+    "port": 8000,
+    "workers": 1,
+    "debug": False,
+    "log_level": "info",
+    "api_key": "default-secret-000",
+}
+
+# Read .env separately so it has lower precedence than OS env
+ENV_FILE = dotenv_values(".env")
+
+
+def parse_bool(value):
+    return str(value).strip().lower() in (
+        "true",
+        "1",
+        "yes",
+        "on",
+    )
+
+
+def coerce(key, value):
+    if key in ("port", "workers"):
+        return int(value)
+    elif key == "debug":
+        return parse_bool(value)
+    else:
+        return str(value)
+
+
+@app.get("/effective-config")
+async def effective_config(set: list[str] = Query(default=[])):
+    config = DEFAULTS.copy()
+
+    # Layer 2: YAML
+    if os.path.exists("config.development.yaml"):
+        with open("config.development.yaml", "r") as f:
+            yaml_config = yaml.safe_load(f) or {}
+            for k, v in yaml_config.items():
+                config[k] = coerce(k, v)
+
+    # Layer 3: .env
+    env_mapping = {
+        "APP_PORT": "port",
+        "APP_WORKERS": "workers",
+        "APP_DEBUG": "debug",
+        "APP_LOG_LEVEL": "log_level",
+        "APP_API_KEY": "api_key",
+    }
+
+    for env_key, cfg_key in env_mapping.items():
+        if env_key in ENV_FILE:
+            config[cfg_key] = coerce(cfg_key, ENV_FILE[env_key])
+
+    # Alias: NUM_WORKERS -> workers
+    if "NUM_WORKERS" in ENV_FILE:
+        config["workers"] = coerce("workers", ENV_FILE["NUM_WORKERS"])
+
+    # Layer 4: OS Environment (highest before CLI)
+    for env_key, cfg_key in env_mapping.items():
+        if env_key in os.environ:
+            config[cfg_key] = coerce(cfg_key, os.environ[env_key])
+
+    # Layer 5: CLI overrides
+    for item in set:
+        if "=" in item:
+            key, value = item.split("=", 1)
+            config[key] = coerce(key, value)
+
+    # Never expose secrets
+    config["api_key"] = "****"
+
+    return config
