@@ -18,16 +18,15 @@ ALLOWED_ORIGIN = "https://dash-52xy3r.example.com"
 ISSUER = "https://idp.exam.local"
 AUDIENCE = "tds-rbhx22z6.apps.exam.local"
 
-PUBLIC_KEY = """
------BEGIN PUBLIC KEY-----
+PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2okOHspNjgA+2rTLbeuY
 cxiP/hG8C6Sb9iwg3yiLAA4HCnpITcbWCSelbvbYGuc3EbNy4xFyf5Cbj5DHJMID
 EkryOgyd2giIIIBOUBj8S63uGcnRpOBh9NFatfNwheKuzsPuVNldu6A9cNteNpXc
 WyJjG2axVfmq7i6SuKr1JoWYG7xTTAvKPujSl4OtsQfO3h5NepzdfXpr28oNnzfW
-ed+zclR6BcmNNo/WVfJ4xyCLSf0BCOgdTgW6PdaChd1l9VDetJZVEgC5tkyvXsfI
-SI6iyrYbKR0NEBSqq4XkadEjsCs4LlgniT7GlkL9Mce3b0wGLs9/7ZIXdQIDAQAB
------END PUBLIC KEY-----
-"""
+ed+zclR6BcmNNo/WVfJ4Chd1l9VDetJZVEgC5tkyvXsfI
+SI6iyrYbKR0NEBSqq4XkadEjsCs4F1RncsS4LlgniT7GlkL9Mce3b0wGLs9/7ZIX
+dQIDAQAB
+-----END PUBLIC KEY-----""".strip()
 
 # ==========================
 # FastAPI App
@@ -43,7 +42,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ==========================
 # Middleware
 # ==========================
@@ -54,45 +52,40 @@ async def add_headers(request: Request, call_next):
 
     response = await call_next(request)
 
-    process_time = time.perf_counter() - start
-
     response.headers["X-Request-ID"] = str(uuid.uuid4())
-    response.headers["X-Process-Time"] = f"{process_time:.6f}"
+    response.headers["X-Process-Time"] = f"{time.perf_counter() - start:.6f}"
 
     return response
-
 
 # ==========================
 # Root
 # ==========================
 
 @app.get("/")
-async def home():
+def root():
     return {"status": "running"}
 
-
 # ==========================
-# Question 1 - Metrics API
+# Question 1
 # ==========================
 
 @app.get("/stats")
-async def stats(values: str = Query(...)):
-    numbers = [int(x) for x in values.split(",") if x.strip()]
+def stats(values: str = Query(...)):
+    nums = [int(v) for v in values.split(",")]
 
-    total = sum(numbers)
+    total = sum(nums)
 
     return {
         "email": EMAIL,
-        "count": len(numbers),
+        "count": len(nums),
         "sum": total,
-        "min": min(numbers),
-        "max": max(numbers),
-        "mean": total / len(numbers),
+        "min": min(nums),
+        "max": max(nums),
+        "mean": total / len(nums),
     }
 
-
 # ==========================
-# Question 2 - OAuth Verify
+# Question 2
 # ==========================
 
 class TokenRequest(BaseModel):
@@ -100,7 +93,7 @@ class TokenRequest(BaseModel):
 
 
 @app.post("/verify")
-async def verify(req: TokenRequest):
+def verify(req: TokenRequest):
     try:
         payload = jwt.decode(
             req.token,
@@ -108,6 +101,12 @@ async def verify(req: TokenRequest):
             algorithms=["RS256"],
             issuer=ISSUER,
             audience=AUDIENCE,
+            options={
+                "verify_signature": True,
+                "verify_exp": True,
+                "verify_aud": True,
+                "verify_iss": True,
+            },
         )
 
         return {
@@ -117,7 +116,14 @@ async def verify(req: TokenRequest):
             "aud": payload.get("aud"),
         }
 
-    except jwt.PyJWTError:
+    except (
+        jwt.ExpiredSignatureError,
+        jwt.InvalidAudienceError,
+        jwt.InvalidIssuerError,
+        jwt.InvalidSignatureError,
+        jwt.DecodeError,
+        jwt.InvalidTokenError,
+    ):
         return JSONResponse(
             status_code=401,
             content={"valid": False},
